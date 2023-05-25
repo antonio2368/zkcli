@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/go-zookeeper/zk"
@@ -245,6 +246,66 @@ func (c *Cmd) deleteall() (err error) {
 	return
 }
 
+func printsupernodes(c *Cmd, path string, threshold int32) (err error) {
+	path = cleanPath(path)
+
+	_, stat, err := c.Conn.Get(path)
+	if err != nil {
+		return
+	}
+
+	if stat.NumChildren >= threshold {
+		fmt.Printf("%+v\n%s\n", string(path), fmtStat(stat))
+		return
+	}
+
+	children, _, err := c.Conn.Children(path)
+	if err != nil {
+		return
+	}
+
+	for _, child := range children {
+		child_path := ""
+		if path == "/" {
+			child_path = fmt.Sprintf("/%s", child)
+		} else {
+			child_path = fmt.Sprintf("%s/%s", path, child)
+		}
+
+		_ = printsupernodes(c, child_path, threshold)
+	}
+
+	return
+}
+
+func (c *Cmd) findsupernodes() (err error) {
+	err = c.checkConn()
+	if err != nil {
+		return
+	}
+
+	p := "/"
+
+	options := c.Options
+	if len(options) != 1 {
+		return errors.New("Threshold missing as argument which is number of children that defines a super node")
+	}
+
+	num, err := strconv.Atoi(options[0])
+	if err != nil {
+		return err
+	}
+
+	threshold := int32(num)
+
+	err = printsupernodes(c, p, threshold)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
 func (c *Cmd) deletestalebackups() (err error) {
 	err = c.checkConn()
 	if err != nil {
@@ -384,6 +445,8 @@ func (c *Cmd) run() (err error) {
 		return c.deleteall()
 	case "deletestalebackups":
 		return c.deletestalebackups()
+	case "findsupernodes":
+		return c.findsupernodes()
 	case "close":
 		return c.close()
 	case "connect":
@@ -420,6 +483,7 @@ set <path> [<data>]
 delete <path>
 deleteall <path>
 deletestalebackups
+findsupernodes <threshold>
 connect <host:port>
 addauth <scheme> <auth>
 close
